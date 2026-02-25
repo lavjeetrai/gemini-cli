@@ -39,6 +39,19 @@ const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 10;
 const hostRequestHistory = new LRUCache<string, number[]>(1000);
 
+/**
+ * Converts a GitHub blob URL to a raw.githubusercontent.com URL.
+ * If the URL is not a GitHub blob URL, it is returned unchanged.
+ */
+function convertGitHubBlobToRaw(url: string): string {
+  if (url.includes('github.com') && url.includes('/blob/')) {
+    return url
+      .replace('github.com', 'raw.githubusercontent.com')
+      .replace('/blob/', '/');
+  }
+  return url;
+}
+
 function checkRateLimit(url: string): {
   allowed: boolean;
   waitTimeMs?: number;
@@ -159,14 +172,7 @@ class WebFetchToolInvocation extends BaseToolInvocation<
   private async executeFallback(signal: AbortSignal): Promise<ToolResult> {
     const { validUrls: urls } = parsePrompt(this.params.prompt);
     // For now, we only support one URL for fallback
-    let url = urls[0];
-
-    // Convert GitHub blob URL to raw URL
-    if (url.includes('github.com') && url.includes('/blob/')) {
-      url = url
-        .replace('github.com', 'raw.githubusercontent.com')
-        .replace('/blob/', '/');
-    }
+    const url = convertGitHubBlobToRaw(urls[0]);
 
     try {
       const response = await retryWithBackoff(
@@ -264,14 +270,7 @@ ${textContent}
     // Perform GitHub URL conversion here to differentiate between user-provided
     // URL and the actual URL to be fetched.
     const { validUrls } = parsePrompt(this.params.prompt);
-    const urls = validUrls.map((url) => {
-      if (url.includes('github.com') && url.includes('/blob/')) {
-        return url
-          .replace('github.com', 'raw.githubusercontent.com')
-          .replace('/blob/', '/');
-      }
-      return url;
-    });
+    const urls = validUrls.map(convertGitHubBlobToRaw);
 
     const confirmationDetails: ToolCallConfirmationDetails = {
       type: 'info',
@@ -290,6 +289,19 @@ ${textContent}
     const userPrompt = this.params.prompt;
     const { validUrls: urls } = parsePrompt(userPrompt);
     const url = urls[0];
+
+    if (!url) {
+      const errorMessage =
+        'No valid URL found in the prompt. Please provide a valid http or https URL.';
+      return {
+        llmContent: `Error: ${errorMessage}`,
+        returnDisplay: `Error: ${errorMessage}`,
+        error: {
+          message: errorMessage,
+          type: ToolErrorType.WEB_FETCH_PROCESSING_ERROR,
+        },
+      };
+    }
 
     // Enforce rate limiting
     const rateLimitResult = checkRateLimit(url);
@@ -411,12 +423,10 @@ ${textContent}
           responseText = responseChars.join('');
         }
 
-        if (sourceListFormatted.length > 0) {
-          responseText += `
+        responseText += `
 
 Sources:
 ${sourceListFormatted.join('\n')}`;
-        }
       }
 
       const llmContent = responseText;

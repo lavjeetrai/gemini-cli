@@ -571,7 +571,7 @@ export const useSessionBrowserInput = (
           return true;
         } else if (
           key.sequence &&
-          key.sequence.length === 1 &&
+          key.insertable &&
           !key.alt &&
           !key.ctrl &&
           !key.cmd
@@ -632,9 +632,12 @@ export const useSessionBrowserInput = (
                   state.activeIndex >=
                   state.filteredAndSortedSessions.length - 1
                 ) {
-                  state.setActiveIndex(
-                    Math.max(0, state.filteredAndSortedSessions.length - 2),
+                  const newIndex = Math.max(
+                    0,
+                    state.filteredAndSortedSessions.length - 2,
                   );
+                  state.setActiveIndex(newIndex);
+                  state.setScrollOffset((offset) => Math.min(offset, newIndex));
                 }
               })
               .catch((error) => {

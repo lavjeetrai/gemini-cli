@@ -269,6 +269,7 @@ describe('SessionBrowser component', () => {
       triggerKey({
         sequence: ch,
         name: ch,
+        insertable: true,
         alt: false,
         ctrl: false,
         cmd: false,
@@ -326,6 +327,74 @@ describe('SessionBrowser component', () => {
     expect(onResumeSession).toHaveBeenCalledTimes(1);
     const [resumedSession] = onResumeSession.mock.calls[0];
     expect(resumedSession).toEqual(session2);
+  });
+
+  it('accepts pasted search text and ignores non-text keys', async () => {
+    const match = createSession({ displayName: 'Find this conversation' });
+    const onResumeSession = vi.fn();
+    const { lastFrame, waitUntilReady } = await render(
+      <TestSessionBrowser
+        config={createMockConfig()}
+        onResumeSession={onResumeSession}
+        onDeleteSession={vi.fn()}
+        onExit={vi.fn()}
+        testSessions={[
+          match,
+          createSession({ id: 'other', displayName: 'Other' }),
+        ]}
+      />,
+    );
+
+    triggerKey({ name: '/', sequence: '/' });
+    await waitUntilReady();
+    triggerKey({ name: 'paste', sequence: 'Find this', insertable: true });
+    await waitUntilReady();
+    expect(lastFrame()).toContain('Search: Find this');
+    expect(lastFrame()).toContain('Chat Sessions (1 total, filtered');
+
+    triggerKey({ name: 'f1', sequence: '\u001bOP' });
+    await waitUntilReady();
+    expect(lastFrame()).toContain('Search: Find this');
+    triggerKey({ name: 'enter', sequence: '\r' });
+    await waitUntilReady();
+    expect(onResumeSession).toHaveBeenCalledWith(match);
+  });
+
+  it('keeps the selected session visible after deleting a scrolled page', async () => {
+    vi.useRealTimers();
+    const sessions = Array.from({ length: 21 }, (_, index) =>
+      createSession({
+        id: `session-${index}`,
+        displayName: `Conversation ${index}`,
+        lastUpdated: new Date(2025, 0, 21 - index).toISOString(),
+      }),
+    );
+    const onResumeSession = vi.fn();
+    const onDeleteSession = vi.fn().mockResolvedValue(undefined);
+    const { lastFrame, waitUntilReady } = await render(
+      <TestSessionBrowser
+        config={createMockConfig()}
+        onResumeSession={onResumeSession}
+        onDeleteSession={onDeleteSession}
+        onExit={vi.fn()}
+        testSessions={sessions}
+      />,
+    );
+
+    triggerKey({ name: 'pagedown' });
+    await waitUntilReady();
+    for (let index = 0; index < 20; index++) {
+      triggerKey({ name: 'x', sequence: 'x' });
+      await waitUntilReady();
+    }
+
+    expect(onDeleteSession).toHaveBeenCalledTimes(20);
+    expect(lastFrame()).toContain('Chat Sessions (1 total');
+    expect(lastFrame()).toContain('❯');
+    expect(lastFrame()).toContain('Conversation 0');
+    triggerKey({ name: 'enter', sequence: '\r' });
+    await waitUntilReady();
+    expect(onResumeSession).toHaveBeenCalledWith(sessions[0]);
   });
 
   it('does not allow resuming or deleting the current session', async () => {
